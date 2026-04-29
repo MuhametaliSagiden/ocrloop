@@ -63,3 +63,41 @@ def test_does_not_convert_when_some_letters_unmappable():
 def test_empty_and_blank_input():
     assert normalize_confusables("") == ""
     assert normalize_confusables("\n\n") == "\n\n"
+
+
+def test_preserves_english_code_identifier_in_preserve_list():
+    # ``text`` previously got rewritten to ``техт`` (t→т, e→е, x→х). Code
+    # identifiers / common English UI words must survive in Cyrillic context.
+    src = (
+        "Атрибут отвечающий за высоту компонента или разметки:\n"
+        "text\n"
+        "type"
+    )
+    out = normalize_confusables(src)
+    assert "text" in out
+    assert "type" in out
+    assert "техт" not in out
+
+
+def test_preserves_snake_case_identifiers():
+    # A line containing an underscore is treated as a code line; per-word
+    # confusable conversion is skipped for that line entirely.
+    src = (
+        "Атрибут отвечающий за высоту компонента или разметки:\n"
+        "layout_width\n"
+        "layout_height"
+    )
+    out = normalize_confusables(src)
+    assert "layout_width" in out
+    assert "layout_height" in out
+
+
+def test_preserves_camel_case_identifiers():
+    src = (
+        "Атрибут отвечающий за высоту компонента или разметки:\n"
+        "onClickListener\n"
+        "setAdapter"
+    )
+    out = normalize_confusables(src)
+    assert "onClickListener" in out
+    assert "setAdapter" in out

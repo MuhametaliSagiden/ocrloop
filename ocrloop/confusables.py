@@ -39,6 +39,53 @@ _CYRILLIC_RANGE = re.compile(r"[\u0400-\u04FF]")
 _LATIN_LETTER = re.compile(r"[A-Za-z]")
 _WORD_RE = re.compile(r"\S+")
 
+# Lines containing these signals are almost certainly source code / UI
+# attribute names, even if every letter in every token is technically a
+# Latin↔Cyrillic confusable. We pass such lines through unchanged so that
+# identifiers like ``layout_width`` or ``camelCase`` survive verbatim.
+_CODE_LINE_HINTS = re.compile(r"[_<>{}\[\]/=]|[a-z][A-Z]|[A-Za-z]\d|\d[A-Za-z]")
+
+# Short English words composed entirely of mappable letters (and therefore
+# wrongly rewritten by the naive confusable pass). These are common enough
+# in UI text and code snippets that the false-positive risk dominates the
+# Cyrillic-rescue benefit. We keep the list intentionally tiny — every
+# addition trades a Russian-word rescue for an English-word preservation.
+_ENGLISH_PRESERVE: Final[frozenset[str]] = frozenset(
+    {
+        "at",
+        "it",
+        "me",
+        "my",
+        "no",
+        "ok",
+        "on",
+        "to",
+        "id",  # defensive: d isn't in the map today but behaviour shouldn't change
+        "cat",
+        "eat",
+        "hat",
+        "key",
+        "map",
+        "set",
+        "tea",
+        "test",
+        "text",
+        "time",
+        "type",
+        "case",
+        "date",
+        "name",
+        "root",
+        "save",
+        "site",
+        "host",
+        "port",
+        "path",
+        "true",
+        "tree",
+    }
+)
+
 
 def _document_is_cyrillic(text: str) -> bool:
     """True if the *whole document* is predominantly Cyrillic.
@@ -69,6 +116,11 @@ def _normalize_word(word: str) -> str:
         # the rest alone. This handles cases like ``ОВо5З`` where Tesseract
         # mixed scripts within one word.
         return "".join(LATIN_TO_CYRILLIC.get(c, c) for c in word)
+    # Strip surrounding punctuation when checking the preserve list so that
+    # "(text)" and "text," still match "text".
+    stripped = re.sub(r"^\W+|\W+$", "", word)
+    if stripped.lower() in _ENGLISH_PRESERVE:
+        return word
     # All-Latin word: only convert if **every** letter is mappable.
     if all((not _LATIN_LETTER.match(c)) or c in LATIN_TO_CYRILLIC for c in word):
         return "".join(LATIN_TO_CYRILLIC.get(c, c) for c in word)
@@ -89,15 +141,20 @@ def normalize_confusables(text: str) -> str:
         body, sep = line, ""
         if line.endswith("\n"):
             body, sep = line[:-1], "\n"
-        line = body
+        # Skip lines that look like code / UI attribute listings — they tend
+        # to contain identifiers like ``layout_width`` or ``camelCase`` that
+        # the per-word pass would otherwise corrupt.
+        if _CODE_LINE_HINTS.search(body):
+            out_lines.append(body + sep)
+            continue
         # Walk word by word, preserving the original whitespace runs so that
         # indentation/columns stay byte-aligned.
         last = 0
         rebuilt: list[str] = []
-        for m in _WORD_RE.finditer(line):
-            rebuilt.append(line[last : m.start()])  # whitespace block
+        for m in _WORD_RE.finditer(body):
+            rebuilt.append(body[last : m.start()])  # whitespace block
             rebuilt.append(_normalize_word(m.group()))
             last = m.end()
-        rebuilt.append(line[last:])
+        rebuilt.append(body[last:])
         out_lines.append("".join(rebuilt) + sep)
     return "".join(out_lines)
