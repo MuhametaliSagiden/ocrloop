@@ -77,6 +77,28 @@ def _decode_image(data: bytes) -> np.ndarray:
     return np.array(img)
 
 
+# Target minimum of (height, width) for EasyOCR input. Small browser
+# screenshots (≈700–1100 px wide) suffer disproportionately — the CRNN
+# recogniser mis-reads compact identifiers like ``layout_width`` as noise.
+# Bumping to ~1600 px via bicubic interpolation restores these reliably
+# at the cost of a modest inference-time bump (~100–200 ms).
+_EASYOCR_MIN_DIM = 1600
+
+
+def _upscale_if_small(img: np.ndarray, min_dim: int = _EASYOCR_MIN_DIM) -> np.ndarray:
+    """Upscale ``img`` so the smaller of (height, width) reaches ``min_dim``."""
+    if img.size == 0:
+        return img
+    h, w = img.shape[:2]
+    smallest = min(h, w)
+    if smallest >= min_dim:
+        return img
+    scale = min_dim / smallest
+    return cv2.resize(
+        img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
+    )
+
+
 def _group_into_lines(
     regions: list[tuple[float, float, float, float, str]],
 ) -> list[list[tuple[float, float, float, float, str]]]:
@@ -176,8 +198,6 @@ def recognize(image_bytes: bytes, langs: str = "rus+eng") -> str:
     """
     reader = _get_reader(langs)
     img = _decode_image(image_bytes)
+    img = _upscale_if_small(img)
     raw = reader.readtext(img, paragraph=False)
-    # EasyOCR returns confidence as float; cv2 import kept for parity with
-    # the rest of the codebase even though we don't use it directly here.
-    _ = cv2  # silence unused-import lint when this module is split tested
     return _reflow_easyocr(raw)
