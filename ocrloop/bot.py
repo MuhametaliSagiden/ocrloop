@@ -22,6 +22,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import CommandStart
 from aiogram.types import Message
+from aiohttp import web
 from dotenv import load_dotenv
 
 from .album import AlbumMiddleware
@@ -124,6 +125,32 @@ def build_dispatcher(latency: float) -> Dispatcher:
     return dp
 
 
+async def _start_health_server(port: int) -> web.AppRunner:
+    """Run a tiny health-check HTTP server alongside the bot.
+
+    Some hosts (Koyeb, Render Web Service, Fly.io with public IP, …) only
+    expose **Web Service** plans on their free tier, which require the app
+    to listen on a TCP port. This bot itself uses long polling and has no
+    HTTP surface, so we add a no-op ``/`` and ``/health`` endpoint here.
+    Activated only when ``PORT`` is set, so plain Worker / VM deploys
+    aren't affected.
+    """
+    app = web.Application()
+
+    async def ok(_request: web.Request) -> web.Response:
+        return web.Response(text="ok")
+
+    app.router.add_get("/", ok)
+    app.router.add_get("/health", ok)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=port)  # noqa: S104
+    await site.start()
+    logger.info("Health server listening on 0.0.0.0:%d", port)
+    return runner
+
+
 async def main() -> None:
     load_dotenv()
     token = os.environ.get("BOT_TOKEN")
@@ -139,8 +166,20 @@ async def main() -> None:
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=None))
     dp = build_dispatcher(latency=latency)
 
+    health_runner: web.AppRunner | None = None
+    port_env = os.environ.get("PORT")
+    if port_env:
+        try:
+            health_runner = await _start_health_server(int(port_env))
+        except (ValueError, OSError) as exc:
+            logger.warning("Failed to start health server on PORT=%r: %s", port_env, exc)
+
     logger.info("Starting bot polling")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        if health_runner is not None:
+            await health_runner.cleanup()
 
 
 if __name__ == "__main__":

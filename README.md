@@ -88,30 +88,37 @@ ocrloop/
 └── ocr.py               # Pre-processing, engine dispatch, layout reflow, cleanup
 ```
 
-## Deploying on Render
+## Deploying
 
 The repo ships a `Dockerfile` that installs Tesseract + RU/EN language packs.
-Render does **not** auto-detect Python services with system dependencies, so
-deploy as a Docker-based **Background Worker** (the bot uses long polling,
-not webhooks — no port to expose).
+The bot uses long polling (no webhook endpoint), so the natural fit is a
+**Worker / Background Worker** service. If your host's free tier only
+covers **Web Service** plans (e.g. Koyeb's free plan), the bot also
+spins up a tiny no-op `/health` HTTP server when the `PORT` environment
+variable is set — that satisfies the platform's TCP-port requirement
+without changing how the bot itself communicates with Telegram.
 
-1. Push to GitHub.
-2. Render dashboard → **New +** → **Background Worker**.
-3. Connect the repo, pick branch `main`.
-4. **Runtime / Environment**: `Docker` (Render auto-detects the
-   `Dockerfile`).
-5. **Build / Start command**: leave blank — the `Dockerfile` `CMD`
-   handles it.
-6. **Environment variables**:
-   - `BOT_TOKEN` — required, from @BotFather.
-   - `OCR_LAYOUT=compact` — optional (this is the default).
-   - `OCR_ENGINE=tesseract` — optional (default). Switching to `easyocr`
-     requires building the image with `INSTALL_EASYOCR=1`; that's too big
-     for Render's free tier (~3 GB).
-7. Click **Create Background Worker**. The first build takes 3–5 minutes
-   while it pulls Python, installs Tesseract, and downloads `requirements.txt`.
+### Koyeb (free, no credit card)
 
-Render will redeploy automatically on every push to `main`.
+1. Sign in at https://koyeb.com (GitHub OAuth).
+2. **Create App** → **GitHub** → pick `MuhametaliSagiden/ocrloop`, branch
+   `main`.
+3. **Builder**: Dockerfile (auto-detected).
+4. **Service type**: `Worker` if your plan allows it (no port needed).
+   Otherwise `Web Service` — the bot will detect the `PORT` env var Koyeb
+   injects and start the health endpoint automatically.
+5. **Instance**: `Free` / `eco-nano`.
+6. **Environment variables**: add `BOT_TOKEN` (required). All other vars
+   (`OCR_ENGINE`, `OCR_LAYOUT`, `OCR_LANGS`, `ALBUM_LATENCY`) have sane
+   defaults.
+7. **Deploy**. First build ≈ 4 minutes (pulls Python + tesseract +
+   language packs).
+
+### Render (paid — Background Workers are no longer free)
+
+Same Dockerfile works. New + → Background Worker → connect repo → Docker
+runtime → set `BOT_TOKEN`. Render dropped the free tier for Background
+Workers in 2024, so this requires a paid plan.
 
 ## How layout preservation works
 
