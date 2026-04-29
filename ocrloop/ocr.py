@@ -275,6 +275,64 @@ def _strip_decorations(text: str) -> str:
     return "\n".join(cleaned_lines)
 
 
+# Bullet glyph used to mark list / answer-option lines in compact-layout
+# output. Cyrillic ``О`` is what the source screenshots use (radio-button
+# circle that Tesseract / EasyOCR may or may not recognise) so we adopt it
+# verbatim — it composes naturally with surrounding Russian content and
+# matches the look of the competing OCR bot the user benchmarked against.
+_COMPACT_BULLET = "О "
+
+# Lines starting with ``<digits>)`` (with optional leading whitespace) are
+# treated as question / list headings — never bulletised, even when they
+# share the indentation of an answer option that just happens to wrap.
+_QUESTION_RE = re.compile(r"^\s*\d+\)\s")
+
+# A line indented this many columns or more (and not a question heading) is
+# treated as a bullet item. The threshold is calibrated for the source
+# screenshots users send: questions sit at 0–3 column indent, answers at
+# 5–10. Wrapped continuation lines of a question typically share the
+# question's small indent (2–3), so 4 is the sweet spot.
+_BULLET_INDENT_THRESHOLD = 4
+
+
+def _compact_layout(text: str) -> str:
+    """Flatten indentation and restore ``О`` markers on bullet-style lines.
+
+    Two simple invariants:
+
+    1. **Bullet detection.** A non-question line indented at least
+       :data:`_BULLET_INDENT_THRESHOLD` columns is an answer option and is
+       prefixed with ``О ``. Question headings (``1) …``) are recognised
+       by regex and never bulletised, regardless of indent.
+    2. **Compaction.** Leading whitespace is dropped from every line and
+       blank lines are removed so the output looks like the competing
+       bot's: one question per line, then ``О <option>`` rows directly
+       beneath.
+
+    The function is idempotent on already-compact text (no indentation →
+    nothing flagged → output equals input minus blank lines).
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue  # drop blank lines entirely
+        if _QUESTION_RE.match(line):
+            out.append(stripped)
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if indent >= _BULLET_INDENT_THRESHOLD:
+            out.append(_COMPACT_BULLET + stripped)
+        else:
+            out.append(stripped)
+    return "\n".join(out)
+
+
+def _selected_layout() -> str:
+    """Resolve the layout style from ``OCR_LAYOUT`` (defaults to compact)."""
+    return os.environ.get("OCR_LAYOUT", "compact").strip().lower()
+
+
 def _tesseract_recognize(image_bytes: bytes, cfg: OCRConfig) -> str:
     """Tesseract recognition + bounding-box reflow (no post-processing)."""
     img = _decode_image(image_bytes)
@@ -311,4 +369,6 @@ def extract_text(image_bytes: bytes, cfg: OCRConfig | None = None) -> str:
         text = _tesseract_recognize(image_bytes, cfg)
     text = _strip_decorations(text)
     text = normalize_confusables(text)
+    if _selected_layout() == "compact":
+        text = _compact_layout(text)
     return text.strip("\n")

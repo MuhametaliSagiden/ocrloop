@@ -59,6 +59,7 @@ python -m ocrloop.bot
 | `BOT_TOKEN`     | —             | Telegram bot token from @BotFather (required).      |
 | `OCR_ENGINE`    | `tesseract`   | Recognition backend: `tesseract` or `easyocr`.      |
 | `OCR_LANGS`     | `rus+eng`     | Language packs to load (Tesseract codes; auto-mapped to ISO-639-1 for EasyOCR). |
+| `OCR_LAYOUT`    | `compact`     | `compact` (drop blanks, flatten indent, prefix options with `О `) or `preserve` (keep reflowed layout). |
 | `ALBUM_LATENCY` | `1.2`         | Seconds to wait for an album to fully arrive.       |
 
 ### Switching to the EasyOCR backend
