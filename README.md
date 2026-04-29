@@ -1,3 +1,13 @@
+---
+title: ocrloop
+emoji: 🔍
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # ocrloop
 
 A Telegram bot that extracts text from images with high precision and
@@ -97,6 +107,30 @@ covers **Web Service** plans (e.g. Koyeb's free plan), the bot also
 spins up a tiny no-op `/health` HTTP server when the `PORT` environment
 variable is set — that satisfies the platform's TCP-port requirement
 without changing how the bot itself communicates with Telegram.
+
+### HuggingFace Spaces (free, no credit card)
+
+HuggingFace Spaces gives you a free 24/7 Docker container without requiring
+a payment method. The repo already has the Spaces YAML frontmatter at the
+top of this README (`sdk: docker`, `app_port: 7860`) so HF picks it up
+automatically.
+
+1. Sign up at https://huggingface.co (no card needed).
+2. **New** → **Space** → name it `ocrloop` → SDK: **Docker** → CPU basic
+   (free) → Visibility: Private (so logs/secrets don't leak).
+3. Add `BOT_TOKEN` as a **Repository secret** (Settings → Variables and
+   secrets → New secret).
+4. Push this repo to the Space's git remote:
+   ```bash
+   git clone https://github.com/MuhametaliSagiden/ocrloop.git ocrloop-hf
+   cd ocrloop-hf
+   git remote add hf https://huggingface.co/spaces/<your-user>/ocrloop
+   git push hf main
+   ```
+   (You'll be prompted for your HF username and an access token created at
+   https://huggingface.co/settings/tokens — give it `Write` permission.)
+5. The Space builds (~5 min on first run). Once status is **Running**,
+   send a photo to the bot in Telegram.
 
 ### Koyeb (free, no credit card)
 
