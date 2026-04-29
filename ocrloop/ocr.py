@@ -22,6 +22,7 @@ The pipeline:
 from __future__ import annotations
 
 import io
+import os
 import re
 from dataclasses import dataclass
 
@@ -274,9 +275,8 @@ def _strip_decorations(text: str) -> str:
     return "\n".join(cleaned_lines)
 
 
-def extract_text(image_bytes: bytes, cfg: OCRConfig | None = None) -> str:
-    """Run the full OCR pipeline on a single image and return clean text."""
-    cfg = cfg or OCRConfig()
+def _tesseract_recognize(image_bytes: bytes, cfg: OCRConfig) -> str:
+    """Tesseract recognition + bounding-box reflow (no post-processing)."""
     img = _decode_image(image_bytes)
     processed = _preprocess(img, cfg)
     tsv = pytesseract.image_to_data(
@@ -284,7 +284,31 @@ def extract_text(image_bytes: bytes, cfg: OCRConfig | None = None) -> str:
         lang=cfg.langs,
         config=cfg.tesseract_config(),
     )
-    text = _reflow_from_tsv(tsv, cfg)
+    return _reflow_from_tsv(tsv, cfg)
+
+
+def _selected_engine() -> str:
+    """Resolve the OCR engine name from ``OCR_ENGINE`` (defaults to tesseract)."""
+    return os.environ.get("OCR_ENGINE", "tesseract").strip().lower()
+
+
+def extract_text(image_bytes: bytes, cfg: OCRConfig | None = None) -> str:
+    """Run the full OCR pipeline on a single image and return clean text.
+
+    The recognition engine is selected by the ``OCR_ENGINE`` environment
+    variable: ``tesseract`` (default) or ``easyocr``. Decoration stripping
+    and Cyrillic-confusable normalisation are applied uniformly to both
+    backends so output formatting is identical.
+    """
+    cfg = cfg or OCRConfig()
+    engine = _selected_engine()
+    if engine == "easyocr":
+        # Lazy import — keeps the EasyOCR / PyTorch dependency optional.
+        from .easyocr_backend import recognize as easyocr_recognize  # noqa: PLC0415
+
+        text = easyocr_recognize(image_bytes, langs=cfg.langs)
+    else:
+        text = _tesseract_recognize(image_bytes, cfg)
     text = _strip_decorations(text)
     text = normalize_confusables(text)
     return text.strip("\n")
