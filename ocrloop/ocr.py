@@ -30,6 +30,8 @@ import numpy as np
 import pytesseract
 from PIL import Image
 
+from .confusables import normalize_confusables
+
 # Characters that are almost always decorative in the kind of screenshots users
 # OCR (chat clients, slide decks, list screenshots, …). They are replaced with
 # a single space so the surrounding indentation/columns stay aligned.
@@ -279,4 +281,5 @@ def extract_text(image_bytes: bytes, cfg: OCRConfig | None = None) -> str:
     )
     text = _reflow_from_tsv(tsv, cfg)
     text = _strip_decorations(text)
+    text = normalize_confusables(text)
     return text.strip("\n")
