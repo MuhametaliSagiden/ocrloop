@@ -48,16 +48,21 @@ def test_strip_radio_button_artifacts():
         "  О   за блокировку\n"
         "  (О) Подбор пароля\n"
         "  [X] Done\n"
-        "  ( ) Empty checkbox"
+        "  ( ) Empty checkbox\n"
+        "  (©)  Подтверждение авторства\n"
+        "  (®) Registered marker"
     )
     out = _strip_decorations(src)
     assert "(О" not in out and "(О)" not in out
     assert "[X]" not in out and "( )" not in out
+    assert "(©)" not in out and "(®)" not in out
     assert "Заудаление" in out
     assert "за блокировку" in out
     assert "Подбор пароля" in out
     assert "Done" in out
     assert "Empty checkbox" in out
+    assert "Подтверждение авторства" in out
+    assert "Registered marker" in out
 
 
 def test_radio_rule_does_not_strip_real_o_words():

@@ -214,13 +214,18 @@ _RADIO_RE = re.compile(
     re.UNICODE,
 )
 
-# Bracketed markers like ``(O)``, ``(О)``, ``[X]``, ``[ ]``, ``(•)``: a single
-# inner character (or space) wrapped in matching parens/brackets. We strip
-# these with just one trailing space because the bracket pair is itself a
-# strong signal — there is no real Russian/English content shaped like
+# Bracketed markers like ``(O)``, ``(О)``, ``[X]``, ``[ ]``, ``(•)``, ``(©)``:
+# a single inner character (or space) wrapped in matching parens/brackets. We
+# strip these with just one trailing space because the bracket pair is itself
+# a strong signal — there is no real Russian/English content shaped like
 # ``(letter)<space><word>`` at the start of a line.
+#
+# The inner-character set covers letters Tesseract substitutes for ○/●/⦿
+# (``O``, ``o``, ``О``, ``о``, ``0``, ``x``, ``X``), the bullet glyphs
+# themselves, and copyright/registered/section signs Tesseract reports when
+# the radio-button glyph is filled (``©``, ``®``, ``§``).
 _BRACKETED_RE = re.compile(
-    r"^(\s*)([(\[][OoОо0xX•●○◯◉ ][)\]])(\s+)(\S.*)$",
+    r"^(\s*)([(\[][OoОо0xX•●○◯◉©®§ ][)\]])(\s+)(\S.*)$",
     re.UNICODE,
 )
 
