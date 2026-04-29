@@ -76,7 +76,11 @@ class OCRConfig:
     langs: str = "rus+eng"
     psm: int = 6  # assume a single uniform block of text
     oem: int = 1  # LSTM only (best quality for non-Latin)
-    min_height: int = 1000  # upscale shorter images for better recognition
+    # Target minimum of (height, width) after upscaling. Most quiz / Google
+    # Forms screenshots users send are 700–1100 px wide; bumping them to
+    # ~1600 px consistently recovers small identifier text like
+    # ``layout_width`` that EasyOCR otherwise mangles.
+    min_dim: int = 1600
 
     def tesseract_config(self) -> str:
         return (
@@ -96,6 +100,29 @@ def _decode_image(data: bytes) -> np.ndarray:
     return arr
 
 
+def _upscale_if_small(img: np.ndarray, min_dim: int) -> np.ndarray:
+    """Upscale ``img`` so the smaller of (height, width) reaches ``min_dim``.
+
+    Uses bicubic interpolation — empirically better than Lanczos on text of
+    the 12–14 px stroke height typical of browser screenshots, and faster.
+    A no-op when the image is already at or above the target size.
+    """
+    if img.size == 0:
+        return img
+    h, w = img.shape[:2]
+    smallest = min(h, w)
+    if smallest >= min_dim:
+        return img
+    scale = min_dim / smallest
+    return cv2.resize(
+        img,
+        None,
+        fx=scale,
+        fy=scale,
+        interpolation=cv2.INTER_CUBIC,
+    )
+
+
 def _preprocess(img: np.ndarray, cfg: OCRConfig) -> np.ndarray:
     """Light pre-processing: grayscale + upscale small images.
 
@@ -107,18 +134,7 @@ def _preprocess(img: np.ndarray, cfg: OCRConfig) -> np.ndarray:
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     else:
         gray = img
-
-    h = gray.shape[0]
-    if h < cfg.min_height:
-        scale = cfg.min_height / h
-        gray = cv2.resize(
-            gray,
-            None,
-            fx=scale,
-            fy=scale,
-            interpolation=cv2.INTER_CUBIC,
-        )
-    return gray
+    return _upscale_if_small(gray, cfg.min_dim)
 
 
 def _reflow_from_tsv(tsv: str, cfg: OCRConfig) -> str:
@@ -294,6 +310,13 @@ _QUESTION_RE = re.compile(r"^\s*\d+\)\s")
 # question's small indent (2–3), so 4 is the sweet spot.
 _BULLET_INDENT_THRESHOLD = 4
 
+# EasyOCR sometimes recognises the empty / filled circle next to each option
+# as a lone ``О``/``O`` followed by whitespace. When the line is already
+# flagged as a bullet by the indent rule, we must strip that leading glyph
+# before prepending our own ``О ``, otherwise the output doubles up as
+# ``О О <option>``.
+_LEADING_BULLET_GLYPH = re.compile(r"^[ОO]\s+")
+
 
 def _compact_layout(text: str) -> str:
     """Flatten indentation and restore ``О`` markers on bullet-style lines.
@@ -322,7 +345,8 @@ def _compact_layout(text: str) -> str:
             continue
         indent = len(line) - len(line.lstrip(" "))
         if indent >= _BULLET_INDENT_THRESHOLD:
-            out.append(_COMPACT_BULLET + stripped)
+            body = _LEADING_BULLET_GLYPH.sub("", stripped)
+            out.append(_COMPACT_BULLET + body)
         else:
             out.append(stripped)
     return "\n".join(out)
