@@ -40,6 +40,34 @@ def test_keeps_real_content_punctuation():
     assert _strip_decorations("2) step two") == "2) step two"
 
 
+def test_strip_radio_button_artifacts():
+    # Tesseract reads ○ / ● / ⦿ as combinations like "(О", "(О)" or a bare
+    # "О" — strip them when followed by 2+ spaces, or in any bracketed form.
+    src = (
+        "  (О  Заудаление старых файлов\n"
+        "  О   за блокировку\n"
+        "  (О) Подбор пароля\n"
+        "  [X] Done\n"
+        "  ( ) Empty checkbox"
+    )
+    out = _strip_decorations(src)
+    assert "(О" not in out and "(О)" not in out
+    assert "[X]" not in out and "( )" not in out
+    assert "Заудаление" in out
+    assert "за блокировку" in out
+    assert "Подбор пароля" in out
+    assert "Done" in out
+    assert "Empty checkbox" in out
+
+
+def test_radio_rule_does_not_strip_real_o_words():
+    # Russian "О компании" with a single space between "О" and the next word
+    # must NOT be touched by the radio-button rule.
+    assert _strip_decorations("О компании") == "О компании"
+    # "OK Computer" similarly.
+    assert _strip_decorations("OK Computer") == "OK Computer"
+
+
 def test_strip_preserves_empty_lines():
     src = "first\n\nsecond"
     assert _strip_decorations(src) == "first\n\nsecond"
