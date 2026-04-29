@@ -168,6 +168,13 @@ async def main() -> None:
 
     health_runner: web.AppRunner | None = None
     port_env = os.environ.get("PORT")
+    # HuggingFace Spaces' Docker SDK doesn't set PORT — instead it expects
+    # the container to listen on whatever port is declared in the README
+    # frontmatter (we use 7860, the HF default). Detect that environment via
+    # the always-present ``SPACE_ID`` variable so the health server still
+    # comes up.
+    if not port_env and os.environ.get("SPACE_ID"):
+        port_env = "7860"
     if port_env:
         try:
             health_runner = await _start_health_server(int(port_env))
