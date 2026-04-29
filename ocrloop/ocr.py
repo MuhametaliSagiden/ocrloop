@@ -30,6 +30,8 @@ import numpy as np
 import pytesseract
 from PIL import Image
 
+from .confusables import normalize_confusables
+
 # Characters that are almost always decorative in the kind of screenshots users
 # OCR (chat clients, slide decks, list screenshots, …). They are replaced with
 # a single space so the surrounding indentation/columns stay aligned.
@@ -201,10 +203,37 @@ def _is_alphanumeric_token(tok: str) -> bool:
     return any(ch.isalnum() for ch in tok)
 
 
+# Characters Tesseract typically mis-recognises empty / filled radio-button
+# and checkbox glyphs (○, ●, ⦿, ◉, ☐, ☑) as. When we see a short token built
+# only from these, hugging the start of a line and followed by 2+ spaces, it
+# is overwhelmingly an artifact rather than real content.
+_RADIO_CHARS = "OoОо0()[]{}|/\\-—–"
+
+_RADIO_RE = re.compile(
+    r"^(\s*)([" + re.escape(_RADIO_CHARS) + r"]{1,3})(\s{2,})(\S.*)$",
+    re.UNICODE,
+)
+
+# Bracketed markers like ``(O)``, ``(О)``, ``[X]``, ``[ ]``, ``(•)``, ``(©)``:
+# a single inner character (or space) wrapped in matching parens/brackets. We
+# strip these with just one trailing space because the bracket pair is itself
+# a strong signal — there is no real Russian/English content shaped like
+# ``(letter)<space><word>`` at the start of a line.
+#
+# The inner-character set covers letters Tesseract substitutes for ○/●/⦿
+# (``O``, ``o``, ``О``, ``о``, ``0``, ``x``, ``X``), the bullet glyphs
+# themselves, and copyright/registered/section signs Tesseract reports when
+# the radio-button glyph is filled (``©``, ``®``, ``§``).
+_BRACKETED_RE = re.compile(
+    r"^(\s*)([(\[][OoОо0xX•●○◯◉©®§ ][)\]])(\s+)(\S.*)$",
+    re.UNICODE,
+)
+
+
 def _strip_decorations(text: str) -> str:
     """Remove decorative bullet / bubble characters while keeping layout.
 
-    Two passes:
+    Three passes:
 
     1. Replace any character in the explicit decorative set with a space.
     2. If a line starts with ``<indent><short non-alphanumeric token><spaces>``
@@ -214,6 +243,12 @@ def _strip_decorations(text: str) -> str:
        Tesseract's typical bullet artefacts (``°``, ``¢``, ``@``, ``*``, …)
        without touching real content like quotes immediately followed by a
        word (``"hello"``) which has no space after them.
+    3. Strip *radio-button artefacts*: short tokens at the start of a line
+       built only from ``O``/``о``/``0``/parentheses/brackets and followed
+       by **two or more** spaces. Tesseract reads ○/●/⦿ as ``(О``, ``(О)``
+       or a lone ``О`` and our pass-2 rule misses them because Cyrillic
+       ``О`` is a letter. The 2-space requirement avoids stripping real
+       content like ``О компании`` (one space) or ``OK Computer``.
     """
     cleaned_lines = []
     bullet_token_re = re.compile(r"^(\s*)([^\w\s]{1,2})(\s+)(\S.*)?$", re.UNICODE)
@@ -225,6 +260,16 @@ def _strip_decorations(text: str) -> str:
         if m and not _is_alphanumeric_token(m.group(2)):
             indent, bullet, gap, rest = m.group(1), m.group(2), m.group(3), m.group(4) or ""
             new = indent + " " * len(bullet) + gap + rest
+        # Pass 3: radio-button mis-recognitions (bare token + 2+ spaces).
+        m = _RADIO_RE.match(new)
+        if m:
+            indent, token, gap, rest = m.group(1), m.group(2), m.group(3), m.group(4)
+            new = indent + " " * len(token) + gap + rest
+        # Pass 4: bracketed markers like ``(O)``, ``[X]`` (single space ok).
+        m = _BRACKETED_RE.match(new)
+        if m:
+            indent, token, gap, rest = m.group(1), m.group(2), m.group(3), m.group(4)
+            new = indent + " " * len(token) + gap + rest
         cleaned_lines.append(new.rstrip())
     return "\n".join(cleaned_lines)
 
@@ -241,4 +286,5 @@ def extract_text(image_bytes: bytes, cfg: OCRConfig | None = None) -> str:
     )
     text = _reflow_from_tsv(tsv, cfg)
     text = _strip_decorations(text)
+    text = normalize_confusables(text)
     return text.strip("\n")
