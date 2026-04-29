@@ -16,10 +16,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import socket
 from io import BytesIO
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiohttp import web
@@ -163,7 +165,20 @@ async def main() -> None:
     )
 
     latency = float(os.environ.get("ALBUM_LATENCY", "1.2"))
-    bot = Bot(token=token, default=DefaultBotProperties(parse_mode=None))
+
+    # Force IPv4 at the aiohttp connector level. HuggingFace Spaces' free
+    # container has broken IPv6 routing to ``api.telegram.org`` — the TLS
+    # handshake never completes on v6 and aiohttp's happy-eyeballs algorithm
+    # ends up timing out at 60s instead of falling back to v4 quickly. This
+    # is also a no-op safety net on providers where v6 works normally.
+    session = AiohttpSession()
+    session._connector_init["family"] = socket.AF_INET
+
+    bot = Bot(
+        token=token,
+        session=session,
+        default=DefaultBotProperties(parse_mode=None),
+    )
     dp = build_dispatcher(latency=latency)
 
     health_runner: web.AppRunner | None = None
